@@ -1,0 +1,12 @@
+node_modules/
+.env
+.env.*
+!.env.example
+api/uploads/
+tmp/
+.next/
+dist/
+mobile/.expo/
+*.log
+*.tsbuildinfo
+next-env.d.ts

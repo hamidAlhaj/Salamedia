@@ -1,0 +1,297 @@
+// Salamedia schema. snake_case in PostgreSQL via @map / @@map.
+// CHECK constraints and partial unique indexes live in the `constraints` migration (raw SQL).
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum Role {
+  USER
+  ADMIN
+}
+
+enum UserStatus {
+  ACTIVE
+  SUSPENDED
+}
+
+enum PostKind {
+  POST
+  REEL
+}
+
+enum ModerationState {
+  VISIBLE
+  HIDDEN
+}
+
+enum MediaKind {
+  IMAGE
+  VIDEO
+}
+
+enum ConversationKind {
+  PUBLIC
+  DIRECT
+  GROUP
+}
+
+enum MemberRole {
+  OWNER
+  MEMBER
+}
+
+enum ReportTargetType {
+  POST
+  COMMENT
+  MESSAGE
+  USER
+}
+
+enum ReportReason {
+  SPAM
+  HATE
+  HARASSMENT
+  VIOLENCE
+  NUDITY
+  OTHER
+}
+
+enum ReportStatus {
+  OPEN
+  ACTIONED
+  DISMISSED
+}
+
+model User {
+  id               Int        @id @default(autoincrement())
+  username         String     @unique @db.VarChar(20)
+  name             String     @db.VarChar(50)
+  email            String     @unique
+  passwordHash     String     @map("password_hash")
+  bio              String?    @db.VarChar(160)
+  avatarPath       String?    @map("avatar_path")
+  role             Role       @default(USER)
+  status           UserStatus @default(ACTIVE)
+  suspendedAt      DateTime?  @map("suspended_at")
+  suspensionReason String?    @map("suspension_reason")
+  createdAt        DateTime   @default(now()) @map("created_at")
+  updatedAt        DateTime   @updatedAt @map("updated_at")
+
+  following Follow[] @relation("FollowFollower")
+  followers Follow[] @relation("FollowFollowee")
+
+  posts          Post[]     @relation("PostAuthor")
+  hiddenPosts    Post[]     @relation("PostHiddenBy")
+  media          Media[]
+  likes          Like[]
+  comments       Comment[]  @relation("CommentAuthor")
+  hiddenComments Comment[]  @relation("CommentHiddenBy")
+  reelViews      ReelView[]
+
+  createdConversations Conversation[]       @relation("ConversationCreatedBy")
+  memberships          ConversationMember[]
+  messages             Message[]            @relation("MessageSender")
+  hiddenMessages       Message[]            @relation("MessageHiddenBy")
+
+  reportsFiled    Report[] @relation("ReportReporter")
+  reportsAgainst  Report[] @relation("ReportTargetUser")
+  reportsResolved Report[] @relation("ReportResolvedBy")
+
+  @@map("users")
+}
+
+model Follow {
+  followerId Int      @map("follower_id")
+  followeeId Int      @map("followee_id")
+  createdAt  DateTime @default(now()) @map("created_at")
+
+  follower User @relation("FollowFollower", fields: [followerId], references: [id], onDelete: Cascade)
+  followee User @relation("FollowFollowee", fields: [followeeId], references: [id], onDelete: Cascade)
+
+  @@id([followerId, followeeId])
+  @@index([followeeId])
+  @@map("follows")
+}
+
+model Post {
+  id              Int             @id @default(autoincrement())
+  authorId        Int             @map("author_id")
+  kind            PostKind
+  body            String?         @db.VarChar(2000)
+  repostOfId      Int?            @map("repost_of_id")
+  moderationState ModerationState @default(VISIBLE) @map("moderation_state")
+  hiddenAt        DateTime?       @map("hidden_at")
+  hiddenById      Int?            @map("hidden_by_id")
+  hiddenReason    String?         @map("hidden_reason")
+  createdAt       DateTime        @default(now()) @map("created_at")
+  updatedAt       DateTime        @updatedAt @map("updated_at")
+
+  author   User   @relation("PostAuthor", fields: [authorId], references: [id], onDelete: Restrict)
+  repostOf Post?  @relation("Repost", fields: [repostOfId], references: [id], onDelete: Cascade)
+  reposts  Post[] @relation("Repost")
+  hiddenBy User?  @relation("PostHiddenBy", fields: [hiddenById], references: [id], onDelete: Restrict)
+
+  media    Media[]
+  likes    Like[]
+  comments Comment[]
+  views    ReelView[]
+  reports  Report[]
+
+  @@index([authorId, id])
+  @@index([kind, id])
+  @@map("posts")
+}
+
+model Media {
+  id         String    @id @db.Uuid
+  ownerId    Int       @map("owner_id")
+  postId     Int?      @map("post_id")
+  kind       MediaKind
+  fileName   String    @unique @map("file_name")
+  mimeType   String    @map("mime_type")
+  sizeBytes  Int       @map("size_bytes")
+  width      Int?
+  height     Int?
+  durationMs Int?      @map("duration_ms")
+  position   Int?
+  createdAt  DateTime  @default(now()) @map("created_at")
+
+  owner User  @relation(fields: [ownerId], references: [id], onDelete: Cascade)
+  post  Post? @relation(fields: [postId], references: [id], onDelete: Cascade)
+
+  @@unique([postId, position])
+  @@index([ownerId, postId])
+  @@map("media")
+}
+
+model Like {
+  userId    Int      @map("user_id")
+  postId    Int      @map("post_id")
+  createdAt DateTime @default(now()) @map("created_at")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  post Post @relation(fields: [postId], references: [id], onDelete: Cascade)
+
+  @@id([userId, postId])
+  @@index([postId])
+  @@map("likes")
+}
+
+model Comment {
+  id              Int             @id @default(autoincrement())
+  postId          Int             @map("post_id")
+  authorId        Int             @map("author_id")
+  body            String          @db.VarChar(500)
+  moderationState ModerationState @default(VISIBLE) @map("moderation_state")
+  hiddenAt        DateTime?       @map("hidden_at")
+  hiddenById      Int?            @map("hidden_by_id")
+  hiddenReason    String?         @map("hidden_reason")
+  createdAt       DateTime        @default(now()) @map("created_at")
+  updatedAt       DateTime        @updatedAt @map("updated_at")
+
+  post     Post     @relation(fields: [postId], references: [id], onDelete: Cascade)
+  author   User     @relation("CommentAuthor", fields: [authorId], references: [id], onDelete: Restrict)
+  hiddenBy User?    @relation("CommentHiddenBy", fields: [hiddenById], references: [id], onDelete: Restrict)
+  reports  Report[]
+
+  @@index([postId, id])
+  @@map("comments")
+}
+
+model ReelView {
+  reelId   Int      @map("reel_id")
+  userId   Int      @map("user_id")
+  viewedOn DateTime @map("viewed_on") @db.Date
+
+  reel Post @relation(fields: [reelId], references: [id], onDelete: Cascade)
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@id([reelId, userId, viewedOn])
+  @@map("reel_views")
+}
+
+model Conversation {
+  id            Int              @id @default(autoincrement())
+  kind          ConversationKind
+  title         String?          @db.VarChar(60)
+  directKey     String?          @unique @map("direct_key")
+  createdById   Int?             @map("created_by_id")
+  lastMessageAt DateTime?        @map("last_message_at")
+  createdAt     DateTime         @default(now()) @map("created_at")
+  updatedAt     DateTime         @updatedAt @map("updated_at")
+
+  createdBy User?                @relation("ConversationCreatedBy", fields: [createdById], references: [id], onDelete: Restrict)
+  members   ConversationMember[]
+  messages  Message[]
+
+  @@index([lastMessageAt])
+  @@map("conversations")
+}
+
+model ConversationMember {
+  conversationId    Int        @map("conversation_id")
+  userId            Int        @map("user_id")
+  role              MemberRole @default(MEMBER)
+  lastReadMessageId Int?       @map("last_read_message_id")
+  joinedAt          DateTime   @default(now()) @map("joined_at")
+
+  conversation Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  user         User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@id([conversationId, userId])
+  @@index([userId])
+  @@map("conversation_members")
+}
+
+model Message {
+  id              Int             @id @default(autoincrement())
+  conversationId  Int             @map("conversation_id")
+  senderId        Int             @map("sender_id")
+  body            String          @db.VarChar(1000)
+  moderationState ModerationState @default(VISIBLE) @map("moderation_state")
+  hiddenAt        DateTime?       @map("hidden_at")
+  hiddenById      Int?            @map("hidden_by_id")
+  hiddenReason    String?         @map("hidden_reason")
+  deletedAt       DateTime?       @map("deleted_at")
+  createdAt       DateTime        @default(now()) @map("created_at")
+
+  conversation Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  sender       User         @relation("MessageSender", fields: [senderId], references: [id], onDelete: Restrict)
+  hiddenBy     User?        @relation("MessageHiddenBy", fields: [hiddenById], references: [id], onDelete: Restrict)
+  reports      Report[]
+
+  @@index([conversationId, id])
+  @@map("messages")
+}
+
+model Report {
+  id           Int              @id @default(autoincrement())
+  reporterId   Int              @map("reporter_id")
+  targetType   ReportTargetType @map("target_type")
+  postId       Int?             @map("post_id")
+  commentId    Int?             @map("comment_id")
+  messageId    Int?             @map("message_id")
+  userId       Int?             @map("user_id")
+  reason       ReportReason
+  details      String?          @db.VarChar(500)
+  status       ReportStatus     @default(OPEN)
+  resolvedById Int?             @map("resolved_by_id")
+  resolvedAt   DateTime?        @map("resolved_at")
+  createdAt    DateTime         @default(now()) @map("created_at")
+
+  reporter   User     @relation("ReportReporter", fields: [reporterId], references: [id], onDelete: Cascade)
+  post       Post?    @relation(fields: [postId], references: [id], onDelete: Cascade)
+  comment    Comment? @relation(fields: [commentId], references: [id], onDelete: Cascade)
+  message    Message? @relation(fields: [messageId], references: [id], onDelete: Cascade)
+  user       User?    @relation("ReportTargetUser", fields: [userId], references: [id], onDelete: Cascade)
+  resolvedBy User?    @relation("ReportResolvedBy", fields: [resolvedById], references: [id], onDelete: Restrict)
+
+  @@index([status, createdAt])
+  @@map("reports")
+}
