@@ -43,6 +43,20 @@ export class AllExceptionsFilter implements ExceptionFilter {
       return { statusCode: status, code: CODE_BY_STATUS[status] ?? 'INTERNAL_ERROR', message };
     }
 
+    // 4xx `http-errors` forwarded by Express middleware, e.g. `send` (static /media) → 416 Range Not
+    // Satisfiable. Keep their status instead of turning them into a 500.
+    const httpError = exception as { status?: unknown; expose?: unknown };
+    if (
+      exception instanceof Error &&
+      httpError.expose === true &&
+      typeof httpError.status === 'number' &&
+      httpError.status >= 400 &&
+      httpError.status < 500
+    ) {
+      const status = httpError.status;
+      return { statusCode: status, code: CODE_BY_STATUS[status] ?? 'VALIDATION_FAILED', message: exception.message };
+    }
+
     if (exception instanceof Prisma.PrismaClientKnownRequestError) {
       if (exception.code === 'P2002') {
         const target = JSON.stringify(exception.meta?.target ?? '');

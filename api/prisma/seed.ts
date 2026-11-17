@@ -18,6 +18,8 @@ import {
   Role,
   UserStatus,
 } from '@prisma/client';
+import { detectFileType } from '../src/media/magic-bytes';
+import { probeMp4, type Mp4Info } from '../src/media/mp4-probe';
 
 const prisma = new PrismaClient();
 
@@ -39,10 +41,9 @@ const VIDEOS_DIR = path.join(SEED_MEDIA, 'videos');
 const UPLOADS_MEDIA = path.resolve(__dirname, '..', 'uploads', 'media');
 const UPLOADS_AVATARS = path.join(UPLOADS_MEDIA, 'avatars');
 
-// Placeholder video metadata until the Phase 4 mp4 probe exists.
-const VIDEO_DURATION_MS = 12_000;
-const VIDEO_WIDTH = 720;
-const VIDEO_HEIGHT = 1280;
+// Same rules as POST /media/videos (plus vertical, because seed clips are also used as reels).
+const VIDEO_MAX_MS = 60_000;
+const VIDEO_MAX_BYTES = 50 * 1024 * 1024;
 
 /** Fixed media UUIDs: 5a1a3ed1-0000-4000-8000-<12-digit counter>. */
 const mediaUuid = (n: number) => `5a1a3ed1-0000-4000-8000-${String(n).padStart(12, '0')}`;
@@ -453,6 +454,34 @@ function imageSize(buf: Buffer): { width: number; height: number } {
   throw new Error('Unsupported seed image (expected PNG or JPEG)');
 }
 
+/**
+ * Probes every seed video with the API's own mp4 probe BEFORE anything is truncated.
+ * A clip that breaks a rule stops the seed with its file name and the reason.
+ */
+async function probeSeedVideos(files: string[]): Promise<Map<string, Mp4Info>> {
+  const out = new Map<string, Mp4Info>();
+  const problems: string[] = [];
+  for (const f of files) {
+    const full = path.join(VIDEOS_DIR, f);
+    try {
+      if ((await detectFileType(full)) !== 'isobmff') throw new Error('not an MP4/MOV file (magic bytes)');
+      if (fs.statSync(full).size > VIDEO_MAX_BYTES) throw new Error('larger than 50 MB');
+      const info = await probeMp4(full);
+      if (info.durationMs > VIDEO_MAX_MS) throw new Error(`too long: ${info.durationMs} ms (max ${VIDEO_MAX_MS} ms)`);
+      if (info.codec !== 'avc1') throw new Error(`codec ${info.codec}, expected avc1 (H.264)`);
+      if (info.height <= info.width) throw new Error(`not vertical: ${info.width}x${info.height}`);
+      console.log(`  video ${f}: ${JSON.stringify(info)}`);
+      out.set(f, info);
+    } catch (e) {
+      problems.push(`prisma/seed-media/videos/${f}: ${(e as Error).message}`);
+    }
+  }
+  if (problems.length > 0) {
+    throw new Error(`Seed videos rejected (nothing was changed):\n  ${problems.join('\n  ')}`);
+  }
+  return out;
+}
+
 function resetUploads(): void {
   fs.rmSync(UPLOADS_MEDIA, { recursive: true, force: true });
   fs.mkdirSync(UPLOADS_AVATARS, { recursive: true });
@@ -463,6 +492,7 @@ function resetUploads(): void {
 async function main(): Promise<void> {
   const images = ensureSeedImages();
   const videos = listFiles(VIDEOS_DIR, ['.mp4']);
+  const videoInfo = await probeSeedVideos(videos);
   if (videos.length === 0) {
     console.warn(
       yellow(
@@ -592,9 +622,9 @@ async function main(): Promise<void> {
         fileName,
         mimeType: 'video/mp4',
         sizeBytes: fs.statSync(path.join(UPLOADS_MEDIA, fileName)).size,
-        width: VIDEO_WIDTH,
-        height: VIDEO_HEIGHT,
-        durationMs: VIDEO_DURATION_MS,
+        width: videoInfo.get(src)!.width,
+        height: videoInfo.get(src)!.height,
+        durationMs: videoInfo.get(src)!.durationMs,
         position: 0,
         createdAt: at(createdMs - MIN),
       });

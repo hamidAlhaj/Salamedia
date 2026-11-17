@@ -1,9 +1,12 @@
 import { ValidationError, ValidationPipe } from '@nestjs/common';
 import { NestFactory } from '@nestjs/core';
+import type { NestExpressApplication } from '@nestjs/platform-express';
+import { mkdirSync } from 'node:fs';
 import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
 import { AppModule } from './app.module';
 import { AppError, FieldErrorDetail } from './common/errors';
 import { AllExceptionsFilter } from './common/filters/all-exceptions.filter';
+import { AVATARS_DIR, MEDIA_DIR } from './media/media.service';
 
 /** Flattens class-validator errors into `[{ field, constraints }]` (nested fields use dots). */
 function toDetails(errors: ValidationError[], prefix = ''): FieldErrorDetail[] {
@@ -15,7 +18,7 @@ function toDetails(errors: ValidationError[], prefix = ''): FieldErrorDetail[] {
 }
 
 async function bootstrap() {
-  const app = await NestFactory.create(AppModule);
+  const app = await NestFactory.create<NestExpressApplication>(AppModule);
 
   app.useGlobalPipes(
     new ValidationPipe({
@@ -34,9 +37,19 @@ async function bootstrap() {
     .filter(Boolean);
   app.enableCors({ origin: origins, credentials: true });
 
+  // Uploaded media: UUID names never change, so cache for 30 days. `send` answers Range with 206.
+  mkdirSync(AVATARS_DIR, { recursive: true });
+  app.useStaticAssets(MEDIA_DIR, {
+    prefix: '/media',
+    immutable: true,
+    maxAge: '30d',
+    index: false,
+    dotfiles: 'deny',
+  });
+
   const swaggerConfig = new DocumentBuilder()
     .setTitle('Salamedia API')
-    .setVersion('0.2.0')
+    .setVersion('0.4.0')
     .addBearerAuth()
     .build();
   SwaggerModule.setup('docs', app, SwaggerModule.createDocument(app, swaggerConfig));
