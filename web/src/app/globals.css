@@ -1,3 +1,78 @@
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
+
+/* Semantic tokens (CLAUDE.md §4.10). HSL triplets, used as hsl(var(--x) / <alpha>).
+   Light --primary / --ring are 32% (spec 34%) and --accent 48% (spec 54%) to pass WCAG AA:
+   primary on bg 4.85:1, primary on primary-soft 4.75:1, white on accent 4.63:1. */
+@layer base {
+  :root {
+    --bg: 210 20% 95%;
+    --surface: 0 0% 100%;
+    --surface-2: 210 18% 92%;
+    --border: 210 14% 86%;
+    --text: 215 25% 12%;
+    --muted: 215 10% 40%;
+    --primary: 196 85% 32%;
+    --primary-fg: 0 0% 100%;
+    --primary-soft: 196 70% 93%;
+    --accent: 8 80% 48%;
+    --accent-fg: 0 0% 100%;
+    --danger: 0 72% 46%;
+    --success: 152 60% 30%;
+    --ring: 196 85% 32%;
+    color-scheme: light;
+  }
+
+  .dark {
+    --bg: 216 18% 8%;
+    --surface: 216 14% 13%;
+    --surface-2: 216 12% 19%;
+    --border: 216 10% 25%;
+    --text: 210 20% 92%;
+    --muted: 214 10% 68%;
+    --primary: 194 75% 55%;
+    --primary-fg: 216 30% 8%;
+    --primary-soft: 196 40% 20%;
+    --accent: 8 85% 64%;
+    --accent-fg: 216 30% 8%;
+    --danger: 0 80% 66%;
+    --success: 152 50% 55%;
+    --ring: 194 75% 55%;
+    color-scheme: dark;
+  }
+
+  html {
+    -webkit-text-size-adjust: 100%;
+  }
+
+  body {
+    @apply bg-bg font-sans text-text antialiased;
+    font-size: 16px;
+    line-height: 1.75;
+  }
+
+  h1,
+  h2,
+  h3,
+  h4 {
+    line-height: 1.35;
+  }
+
+  :focus-visible {
+    outline: 2px solid hsl(var(--ring));
+    outline-offset: 2px;
+  }
+}
+
+/* Non-essential motion off for people who ask for it. */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}
