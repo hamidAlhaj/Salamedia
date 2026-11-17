@@ -10,6 +10,7 @@ The seed (`npm run db:seed`) copies these files into `api/uploads/media/` under 
 - **Vertical** (portrait) `.mp4`, **H.264 (`avc1`)** video, **≤ 15 s**, **≤ 8 MB** each, 6–8 clips.
 - HEVC/H.265 clips (the iPhone default) are rejected by the API in Phase 4. On iPhone choose Settings → Camera → Formats → "Most Compatible" before recording.
 - Check a clip's codec on Windows with VLC → Tools → Codec Information (you want "H264 - MPEG-4 AVC (part 10) (avc1)").
+- The seed probes every clip with the API's own `mp4-probe` before it touches the database (duration, display width/height after rotation, codec). A clip that is not ISO-BMFF, is over 50 MB or 60 s, is not `avc1`, or is not vertical stops the seed with the file name and the reason, and nothing is changed.
 - If this folder is empty, the seed skips video posts and reels and prints a warning.
 
 Files are used in name order and reused when the seed needs more than are present.
