@@ -23,6 +23,17 @@ const config: Config = {
         danger: token("danger"),
         success: token("success"),
         ring: token("ring"),
+        overlay: token("overlay"),
+        "overlay-fg": token("overlay-fg"),
+      },
+      keyframes: {
+        "menu-in": {
+          from: { opacity: "0", transform: "translateY(-4px) scale(0.98)" },
+          to: { opacity: "1", transform: "translateY(0) scale(1)" },
+        },
+      },
+      animation: {
+        "menu-in": "menu-in 140ms ease-out",
       },
       fontFamily: {
         sans: ["var(--font-plex)", "system-ui", "sans-serif"],

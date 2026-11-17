@@ -21,6 +21,9 @@
     --danger: 0 72% 46%;
     --success: 152 60% 30%;
     --ring: 196 85% 32%;
+    /* Same in both themes: the dark glass over reel videos (bottom tabs on /reels). */
+    --overlay: 216 30% 6%;
+    --overlay-fg: 0 0% 100%;
     color-scheme: light;
   }
 

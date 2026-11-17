@@ -1,9 +1,12 @@
 import "server-only";
 import { redirect } from "next/navigation";
-import { clearSessionToken } from "./session";
-import type { ApiErrorBody } from "./types";
+import { cache } from "react";
+import type { ApiErrorBody, SafeUser } from "./types";
 
 const API_URL = process.env.API_URL ?? "http://localhost:4000";
+
+/** Route Handler that clears a dead session cookie and sends the user to /login (or /login?suspended=1). */
+export const END_SESSION_PATH = "/auth/end-session";
 
 /** A non-2xx API response, carrying the stable error `code`. */
 export class ApiError extends Error {
@@ -29,7 +32,8 @@ interface ApiFetchOptions extends Omit<RequestInit, "body"> {
 
 /**
  * The one way the web talks to the API. Throws ApiError on any error response.
- * A 401 on an authenticated call means the session is gone: clear it and go to /login.
+ * A 401 (session gone) or 403 ACCOUNT_SUSPENDED on an authenticated call ends the session through
+ * the end-session Route Handler, because cookies are read-only while a Server Component renders.
  */
 export async function apiFetch<T>(path: string, { token, json, headers, ...init }: ApiFetchOptions = {}): Promise<T> {
   let res: Response;
@@ -49,20 +53,19 @@ export async function apiFetch<T>(path: string, { token, json, headers, ...init 
     throw new ApiError(503, "INTERNAL_ERROR", "API unreachable");
   }
 
-  if (res.status === 401 && token) {
-    try {
-      await clearSessionToken();
-    } catch {
-      // Cookies are read-only while rendering a Server Component; the redirect still happens.
-    }
-    redirect("/login");
+  if (res.ok) {
+    if (res.status === 204) return undefined as T;
+    return (await res.json()) as T;
   }
 
-  if (!res.ok) {
-    const body = (await res.json().catch(() => null)) as ApiErrorBody | null;
-    throw new ApiError(res.status, body?.code ?? "INTERNAL_ERROR", body?.message ?? res.statusText, body?.details);
+  const body = (await res.json().catch(() => null)) as ApiErrorBody | null;
+  const code = body?.code ?? "INTERNAL_ERROR";
+  if (token && (res.status === 401 || code === "ACCOUNT_SUSPENDED")) {
+    // The Route Handler re-checks the token, clears the cookie and picks /login or /login?suspended=1.
+    redirect(END_SESSION_PATH);
   }
-
-  if (res.status === 204) return undefined as T;
-  return (await res.json()) as T;
+  throw new ApiError(res.status, code, body?.message ?? res.statusText, body?.details);
 }
+
+/** GET /auth/me, deduplicated per request (the (app) layout and a page may both need it). */
+export const fetchMe = cache((token: string) => apiFetch<SafeUser>("/auth/me", { token }));
