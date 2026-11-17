@@ -31,9 +31,23 @@ const config: Config = {
           from: { opacity: "0", transform: "translateY(-4px) scale(0.98)" },
           to: { opacity: "1", transform: "translateY(0) scale(1)" },
         },
+        // The like "pop" (off under prefers-reduced-motion: motion-reduce:animate-none + globals.css).
+        "like-pop": {
+          "0%": { transform: "scale(1)" },
+          "40%": { transform: "scale(1.35)" },
+          "100%": { transform: "scale(1)" },
+        },
+        // CSS-only toast: fades in, stays, fades out. Removed from the DOM when it ends.
+        toast: {
+          "0%": { opacity: "0", transform: "translateY(8px)" },
+          "12%, 85%": { opacity: "1", transform: "translateY(0)" },
+          "100%": { opacity: "0", transform: "translateY(0)" },
+        },
       },
       animation: {
         "menu-in": "menu-in 140ms ease-out",
+        "like-pop": "like-pop 320ms ease-out",
+        toast: "toast 2400ms ease-out forwards",
       },
       fontFamily: {
         sans: ["var(--font-plex)", "system-ui", "sans-serif"],

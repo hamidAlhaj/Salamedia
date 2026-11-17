@@ -83,9 +83,10 @@ export interface PostOriginal {
   moderationState: ModerationState;
   author: PublicUser;
   media: PostMedia[];
-  likeCount: number;
-  commentCount: number;
-  repostCount: number;
+  likesCount: number;
+  /** Visible comments by active authors (hidden ones are never counted). */
+  commentsCount: number;
+  repostsCount: number;
   /** Absent on the public endpoint. */
   likedByMe?: boolean;
   repostedByMe?: boolean;
@@ -97,6 +98,25 @@ export interface PostCard extends PostOriginal {
   repostOf: PostOriginal | null;
   /** A repost whose original is hidden or by a suspended author: show "no longer available". */
   repostUnavailable: boolean;
+}
+
+/** POST | DELETE /posts/:id/like (both idempotent). */
+export interface LikeResult {
+  liked: boolean;
+  likesCount: number;
+}
+
+/** GET /posts/:id/comments items and POST /posts/:id/comments. */
+export interface CommentItem {
+  id: number;
+  postId: number;
+  body: string;
+  createdAt: string;
+  /** HIDDEN only ever reaches the comment author and admins. */
+  moderationState: ModerationState;
+  author: PublicUser;
+  /** The comment author or the post author. */
+  canDelete: boolean;
 }
 
 /** Cursor pagination (CLAUDE.md §4.5). */

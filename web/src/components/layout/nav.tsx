@@ -166,6 +166,26 @@ export const TrashIcon = (p: IconProps) => (
   </Svg>
 );
 
+export const LinkIcon = (p: IconProps) => (
+  <Svg {...p}>
+    <path d="M10 14a4.5 4.5 0 0 0 6.4 0l3-3a4.5 4.5 0 0 0-6.4-6.4l-1 1" />
+    <path d="M14 10a4.5 4.5 0 0 0-6.4 0l-3 3a4.5 4.5 0 0 0 6.4 6.4l1-1" />
+  </Svg>
+);
+
+export const QuoteIcon = (p: IconProps) => (
+  <Svg {...p}>
+    <path d="M4 20h4l10.5-10.5a2.1 2.1 0 0 0-3-3L5 17v3zM13.5 7.5l3 3" />
+  </Svg>
+);
+
+export const UndoIcon = (p: IconProps) => (
+  <Svg {...p}>
+    <path d="M9 14 4 9l5-5" />
+    <path d="M4 9h10.5a5.5 5.5 0 0 1 0 11H11" />
+  </Svg>
+);
+
 export interface Section {
   key: "home" | "reels" | "following" | "chat" | "profile";
   label: string;
