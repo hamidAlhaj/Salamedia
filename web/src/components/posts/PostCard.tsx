@@ -1,15 +1,16 @@
 import Link from "next/link";
-import { CommentIcon, GlobeIcon, HeartIcon, RepostIcon, ShareIcon } from "@/components/layout/nav";
+import { GlobeIcon, RepostIcon } from "@/components/layout/nav";
 import { Avatar } from "@/components/ui/Avatar";
 import { Badge } from "@/components/ui/Badge";
-import { Button } from "@/components/ui/Button";
 import { formatDateTime, formatDuration, formatNumber, relativeTime } from "@/lib/format";
 import type { PostCard, PostMedia, PostOriginal } from "@/lib/types";
+import { CountsRow, PostActions } from "./PostActions";
 
 /**
  * The one post card (CLAUDE.md §4.10, Facebook-style): header, body, edge-to-edge media, counts
  * row, divider, 3-button action row. Pure and hook-free, so it renders as a Server Component in
  * pages AND inside client components (LoadMoreFeed) from the same JSON. No second implementation.
+ * The interactive counts + action row (likes, comment link, share menu) is the PostActions client component.
  */
 export function PostCardView({
   post,
@@ -27,14 +28,19 @@ export function PostCardView({
 }) {
   const href = `${linkBase}/${post.id}`;
   const isRepost = post.repostOf !== null || post.repostUnavailable;
-  const counts = post.likeCount + post.commentCount + post.repostCount > 0;
 
   return (
     <article
       aria-labelledby={`post-${post.id}-author`}
-      className="overflow-hidden rounded-none bg-surface shadow-sm sm:rounded-lg"
+      className="rounded-none bg-surface shadow-sm sm:rounded-lg"
     >
-      <PostHeader post={post} href={href} isRepost={isRepost} />
+      {isRepost && (
+        <p className="flex items-center gap-1.5 px-4 pt-3 text-[13px] font-medium text-muted">
+          <RepostIcon size={14} />
+          أعاد {post.author.name} النشر
+        </p>
+      )}
+      <PostHeader post={post} href={href} compact={isRepost} />
 
       {post.body && <PostBody text={post.body} />}
 
@@ -51,57 +57,42 @@ export function PostCardView({
         </div>
       )}
 
-      {counts && (
-        <div className="mt-2 flex items-center justify-between gap-3 px-4 py-1 text-sm text-muted">
-          <span className="flex items-center gap-1.5">
-            {post.likeCount > 0 && (
-              <>
-                <span className="flex h-[18px] w-[18px] items-center justify-center rounded-full bg-accent text-accent-fg">
-                  <HeartIcon size={11} filled />
-                </span>
-                <span>
-                  <span className="sr-only">الإعجابات: </span>
-                  {formatNumber(post.likeCount)}
-                </span>
-              </>
-            )}
-          </span>
-          <span className="flex items-center gap-1">
-            {post.commentCount > 0 && <span>{formatNumber(post.commentCount)} تعليقاً</span>}
-            {post.commentCount > 0 && post.repostCount > 0 && <span aria-hidden="true">·</span>}
-            {post.repostCount > 0 && <span>{formatNumber(post.repostCount)} مشاركة</span>}
-          </span>
-        </div>
+      {readOnly ? (
+        <>
+          <CountsRow
+            postId={post.id}
+            likesCount={post.likesCount}
+            commentsCount={post.commentsCount}
+            repostsCount={post.repostsCount}
+          />
+          <div className="h-3" />
+        </>
+      ) : (
+        <PostActions
+          data={{
+            postId: post.id,
+            authorName: post.author.name,
+            likedByMe: post.likedByMe ?? false,
+            likesCount: post.likesCount,
+            commentsCount: post.commentsCount,
+            repostsCount: post.repostsCount,
+            // A repost card reposts (and undoes) its original, so the state is about the original.
+            repostedByMe: (isRepost ? post.repostOf?.repostedByMe : post.repostedByMe) ?? false,
+            repostTargetAuthorId: isRepost ? (post.repostOf?.author.id ?? null) : post.author.id,
+            isRepost,
+          }}
+        />
       )}
-
-      {!readOnly && (
-        <div className={`mx-4 grid grid-cols-3 gap-1 border-t border-border py-1 ${counts ? "" : "mt-3"}`}>
-          {/* Placeholders until Phase 6 (likes, comments, reposts and the share link). */}
-          <Button variant="ghost" size="sm" disabled title="قريباً" className="text-muted">
-            <HeartIcon size={18} filled={post.likedByMe} className={post.likedByMe ? "text-accent" : ""} />
-            أعجبني
-          </Button>
-          <Button variant="ghost" size="sm" disabled title="قريباً" className="text-muted">
-            <CommentIcon size={18} />
-            تعليق
-          </Button>
-          <Button variant="ghost" size="sm" disabled title="قريباً" className="text-muted">
-            <ShareIcon size={18} />
-            مشاركة
-          </Button>
-        </div>
-      )}
-      {readOnly && <div className="h-3" />}
 
       {footer && <div className="flex justify-end border-t border-border px-4 py-2">{footer}</div>}
     </article>
   );
 }
 
-function PostHeader({ post, href, isRepost }: { post: PostCard; href: string; isRepost: boolean }) {
+function PostHeader({ post, href, compact }: { post: PostCard; href: string; compact: boolean }) {
   const { author } = post;
   return (
-    <header className="flex items-start gap-2 px-4 pt-3">
+    <header className={`flex items-start gap-2 px-4 ${compact ? "pt-2" : "pt-3"}`}>
       <Link href={`/u/${author.username}`} className="shrink-0 rounded-full focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring" tabIndex={-1} aria-hidden="true">
         <Avatar name={author.name} userId={author.id} src={author.avatarUrl} size="md" />
       </Link>
@@ -117,12 +108,6 @@ function PostHeader({ post, href, isRepost }: { post: PostCard; href: string; is
           <span dir="ltr" className="truncate text-sm text-muted">
             @{author.username}
           </span>
-          {isRepost && (
-            <span className="inline-flex items-center gap-1 text-sm text-muted">
-              <RepostIcon size={14} />
-              شارك منشوراً
-            </span>
-          )}
         </p>
         <p className="mt-0.5 flex flex-wrap items-center gap-1.5 text-[13px] text-muted">
           <PostTime createdAt={post.createdAt} href={href} />

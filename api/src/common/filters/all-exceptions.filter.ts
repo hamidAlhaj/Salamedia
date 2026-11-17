@@ -17,6 +17,8 @@ const CODE_BY_STATUS: Record<number, ErrorCode> = {
 const UNIQUE_CODES: [string, ErrorCode][] = [
   ['email', 'EMAIL_TAKEN'],
   ['username', 'USERNAME_TAKEN'],
+  // posts_one_repost_per_user_uq, a raw-SQL partial unique index: Prisma reports target [author_id, repost_of_id].
+  ['repost', 'ALREADY_REPOSTED'],
 ];
 
 @Catch()

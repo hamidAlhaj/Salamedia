@@ -9,10 +9,13 @@ import { MEDIA_DIR } from '../media/media.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { avatarUrl, PublicUser } from '../users/users.service';
 import { CreatePostDto } from './dto/create-post.dto';
+import { CreateCommentDto } from './dto/create-comment.dto';
 import { CursorQueryDto } from './dto/cursor-query.dto';
+import { RepostDto } from './dto/repost.dto';
 
 const MAX_IMAGES = 4;
 const HOME_FEED_DEFAULT_LIMIT = 10;
+const COMMENTS_DEFAULT_LIMIT = 20;
 const INT_MAX = 2147483647;
 
 // ───────────── response shapes (Swagger) ─────────────
@@ -39,9 +42,9 @@ export class PostOriginal {
   moderationState!: ModerationState;
   @ApiProperty({ type: PublicUser }) author!: PublicUser;
   @ApiProperty({ type: [PostMediaItem], description: 'Ordered by position' }) media!: PostMediaItem[];
-  @ApiProperty({ description: 'Likes by active users' }) likeCount!: number;
-  @ApiProperty({ description: 'Visible comments by active users' }) commentCount!: number;
-  @ApiProperty({ description: 'Visible reposts by active users' }) repostCount!: number;
+  @ApiProperty({ description: 'Likes by active users' }) likesCount!: number;
+  @ApiProperty({ description: 'Visible comments by active users' }) commentsCount!: number;
+  @ApiProperty({ description: 'Visible reposts by active users' }) repostsCount!: number;
   @ApiPropertyOptional({ description: 'Absent on the public endpoint' }) likedByMe?: boolean;
   @ApiPropertyOptional({ description: 'Absent on the public endpoint' }) repostedByMe?: boolean;
 }
@@ -68,7 +71,51 @@ export class FeedPage {
   nextCursor!: number | null;
 }
 
+export class LikeResult {
+  @ApiProperty() liked!: boolean;
+  @ApiProperty({ description: 'Likes by active users after the change' }) likesCount!: number;
+}
+
+export class CommentItem {
+  @ApiProperty() id!: number;
+  @ApiProperty() postId!: number;
+  @ApiProperty() body!: string;
+  @ApiProperty() createdAt!: Date;
+  @ApiProperty({ enum: ModerationState, description: 'HIDDEN is only ever returned to its author and to admins' })
+  moderationState!: ModerationState;
+  @ApiProperty({ type: PublicUser }) author!: PublicUser;
+  @ApiProperty({ description: 'True for the comment author and for the post author' }) canDelete!: boolean;
+}
+
+export class CommentPage {
+  @ApiProperty({ type: [CommentItem], description: 'Newest first' }) items!: CommentItem[];
+  @ApiProperty({ type: Number, nullable: true, description: 'Pass as ?cursor= for the next page; null at the end' })
+  nextCursor!: number | null;
+}
+
 // ───────────── the one shared select ─────────────
+
+/** Public author fields, plus status for the visibility rules (never returned). */
+const AUTHOR_SELECT = {
+  id: true,
+  username: true,
+  name: true,
+  bio: true,
+  avatarPath: true,
+  createdAt: true,
+  status: true,
+} satisfies Prisma.UserSelect;
+
+function toPublicAuthor(a: Prisma.UserGetPayload<{ select: typeof AUTHOR_SELECT }>): PublicUser {
+  return {
+    id: a.id,
+    username: a.username,
+    name: a.name,
+    bio: a.bio,
+    avatarUrl: avatarUrl(a.avatarPath),
+    createdAt: a.createdAt,
+  };
+}
 
 /** Card fields of one post. `meId` scopes likedByMe / repostedByMe (pass 0 for guests: no user has id 0). */
 function cardFields(meId: number) {
@@ -79,9 +126,7 @@ function cardFields(meId: number) {
     createdAt: true,
     moderationState: true,
     authorId: true,
-    author: {
-      select: { id: true, username: true, name: true, bio: true, avatarPath: true, createdAt: true, status: true },
-    },
+    author: { select: AUTHOR_SELECT },
     media: {
       orderBy: { position: 'asc' },
       select: { id: true, fileName: true, kind: true, width: true, height: true, durationMs: true },
@@ -131,21 +176,13 @@ function canView(
 }
 
 function toOriginal(row: OriginalRow, withByMe: boolean): PostOriginal {
-  const { author } = row;
   return {
     id: row.id,
     kind: row.kind,
     body: row.body,
     createdAt: row.createdAt,
     moderationState: row.moderationState,
-    author: {
-      id: author.id,
-      username: author.username,
-      name: author.name,
-      bio: author.bio,
-      avatarUrl: avatarUrl(author.avatarPath),
-      createdAt: author.createdAt,
-    },
+    author: toPublicAuthor(row.author),
     media: row.media.map((m) => ({
       id: m.id,
       url: `/media/${m.fileName}`,
@@ -154,9 +191,9 @@ function toOriginal(row: OriginalRow, withByMe: boolean): PostOriginal {
       height: m.height,
       durationMs: m.durationMs,
     })),
-    likeCount: row._count.likes,
-    commentCount: row._count.comments,
-    repostCount: row._count.reposts,
+    likesCount: row._count.likes,
+    commentsCount: row._count.comments,
+    repostsCount: row._count.reposts,
     ...(withByMe ? { likedByMe: row.likes.length > 0, repostedByMe: row.reposts.length > 0 } : {}),
   };
 }
@@ -172,6 +209,48 @@ export function toPostCard(row: CardRow, viewer: Viewer): PostCard {
 }
 
 const notFound = () => new AppError('NOT_FOUND', 404, 'Post not found');
+
+/** A foreign-key violation: the post was deleted between our read and our write. */
+const isFkViolation = (e: unknown) => e instanceof Prisma.PrismaClientKnownRequestError && e.code === 'P2003';
+
+const COMMENT_SELECT = {
+  id: true,
+  postId: true,
+  authorId: true,
+  body: true,
+  createdAt: true,
+  moderationState: true,
+  author: { select: AUTHOR_SELECT },
+} satisfies Prisma.CommentSelect;
+
+type CommentRow = Prisma.CommentGetPayload<{ select: typeof COMMENT_SELECT }>;
+
+/** The comment author and the post author may delete a comment (admins hide instead). */
+function toComment(c: CommentRow, viewer: AuthUser, postAuthorId: number): CommentItem {
+  return {
+    id: c.id,
+    postId: c.postId,
+    body: c.body,
+    createdAt: c.createdAt,
+    moderationState: c.moderationState,
+    author: toPublicAuthor(c.author),
+    canDelete: c.authorId === viewer.id || postAuthorId === viewer.id,
+  };
+}
+
+/** §4.4 for comment lists: admins see all; others skip suspended authors and others' hidden comments. */
+function commentVisibility(viewer: AuthUser): Prisma.CommentWhereInput {
+  if (viewer.role === 'ADMIN') return {};
+  return { author: { status: 'ACTIVE' }, OR: [{ moderationState: 'VISIBLE' }, { authorId: viewer.id }] };
+}
+
+/** What canView needs, for targets of likes, comments and reposts. */
+const VISIBILITY_FIELDS = {
+  id: true,
+  authorId: true,
+  moderationState: true,
+  author: { select: { status: true } },
+} satisfies Prisma.PostSelect;
 
 @Injectable()
 export class PostsService {
@@ -313,5 +392,140 @@ export class PostsService {
         this.logger.warn(`Could not delete ${fileName}: ${e instanceof Error ? e.message : String(e)}`),
       );
     }
+  }
+  // ───────────── likes ─────────────
+
+  /** The minimum needed for the visibility rule (and the repost target). 404 when the viewer may not see it. */
+  private async findVisibleTarget(id: number, viewer: AuthUser) {
+    if (id > INT_MAX) throw notFound();
+    const post = await this.prisma.post.findUnique({
+      where: { id },
+      select: { ...VISIBILITY_FIELDS, repostOfId: true, repostOf: { select: VISIBILITY_FIELDS } },
+    });
+    if (!post || !canView(post, viewer)) throw notFound();
+    return post;
+  }
+
+  private likesCount(postId: number): Promise<number> {
+    return this.prisma.like.count({ where: { postId, user: { status: 'ACTIVE' } } });
+  }
+
+  /** POST /posts/:id/like: idempotent (skipDuplicates on the (user, post) primary key). Posts and reels. */
+  async like(id: number, viewer: AuthUser): Promise<LikeResult> {
+    await this.findVisibleTarget(id, viewer);
+    try {
+      await this.prisma.like.createMany({ data: [{ userId: viewer.id, postId: id }], skipDuplicates: true });
+    } catch (e) {
+      throw isFkViolation(e) ? notFound() : e;
+    }
+    return { liked: true, likesCount: await this.likesCount(id) };
+  }
+
+  /** DELETE /posts/:id/like: idempotent (deleting nothing is fine). */
+  async unlike(id: number, viewer: AuthUser): Promise<LikeResult> {
+    await this.findVisibleTarget(id, viewer);
+    await this.prisma.like.deleteMany({ where: { userId: viewer.id, postId: id } });
+    return { liked: false, likesCount: await this.likesCount(id) };
+  }
+
+  // ───────────── comments ─────────────
+
+  /** GET /posts/:id/comments: newest first, cursor-paginated, filtered by §4.4 visibility. */
+  async comments(postId: number, viewer: AuthUser, query: CursorQueryDto): Promise<CommentPage> {
+    const post = await this.findVisibleTarget(postId, viewer);
+    const limit = query.limit ?? COMMENTS_DEFAULT_LIMIT;
+    const rows = await this.prisma.comment.findMany({
+      where: { postId, ...(query.cursor ? { id: { lt: query.cursor } } : {}), ...commentVisibility(viewer) },
+      orderBy: { id: 'desc' },
+      take: limit + 1,
+      select: COMMENT_SELECT,
+    });
+    const page = rows.slice(0, limit);
+    return {
+      items: page.map((c) => toComment(c, viewer, post.authorId)),
+      nextCursor: rows.length > limit ? page[page.length - 1].id : null,
+    };
+  }
+
+  /** POST /posts/:id/comments: the post must be visible to the commenter. */
+  async addComment(postId: number, viewer: AuthUser, dto: CreateCommentDto): Promise<CommentItem> {
+    const post = await this.findVisibleTarget(postId, viewer);
+    try {
+      const comment = await this.prisma.comment.create({
+        data: { postId, authorId: viewer.id, body: dto.body },
+        select: COMMENT_SELECT,
+      });
+      return toComment(comment, viewer, post.authorId);
+    } catch (e) {
+      throw isFkViolation(e) ? notFound() : e;
+    }
+  }
+
+  /**
+   * DELETE /comments/:id: the comment author or the post author. A comment (or post) the viewer
+   * cannot see is 404, not 403, so its existence is not revealed.
+   */
+  async removeComment(id: number, viewer: AuthUser): Promise<void> {
+    const commentNotFound = () => new AppError('NOT_FOUND', 404, 'Comment not found');
+    if (id > INT_MAX) throw commentNotFound();
+    const comment = await this.prisma.comment.findUnique({
+      where: { id },
+      select: {
+        authorId: true,
+        moderationState: true,
+        author: { select: { status: true } },
+        post: { select: VISIBILITY_FIELDS },
+      },
+    });
+    if (!comment || !canView(comment, viewer) || !canView(comment.post, viewer)) throw commentNotFound();
+    if (comment.authorId !== viewer.id && comment.post.authorId !== viewer.id) {
+      throw new AppError('FORBIDDEN', 403, 'Only the comment author or the post author can delete a comment');
+    }
+    // The ownership condition is part of the delete itself, so it holds even under a race.
+    const { count } = await this.prisma.comment.deleteMany({
+      where: { id, OR: [{ authorId: viewer.id }, { post: { authorId: viewer.id } }] },
+    });
+    if (count !== 1) throw commentNotFound();
+  }
+
+  // ───────────── reposts ─────────────
+
+  /**
+   * POST /posts/:id/repost (CLAUDE.md §4.3): kind POST with repost_of_id and an optional quote, never
+   * media. A repost of a repost points to its original; the original may be a POST or a REEL; never
+   * your own post (CANNOT_REPOST). A second repost hits the partial unique index
+   * posts_one_repost_per_user_uq → P2002 → 409 ALREADY_REPOSTED (in AllExceptionsFilter).
+   */
+  async repost(id: number, viewer: AuthUser, dto: RepostDto): Promise<PostCard> {
+    const target = await this.findVisibleTarget(id, viewer);
+    const original = target.repostOf ?? target;
+    if (!canView(original, viewer)) throw notFound();
+    if (original.authorId === viewer.id) {
+      throw new AppError('CANNOT_REPOST', 400, 'You cannot repost your own post');
+    }
+    // Only reachable by admins (they can see hidden content): hidden content is not spread further.
+    if (original.moderationState !== ModerationState.VISIBLE || original.author.status !== 'ACTIVE') {
+      throw new AppError('CANNOT_REPOST', 400, 'This post can no longer be reposted');
+    }
+
+    let repostId: number;
+    try {
+      const created = await this.prisma.post.create({
+        data: { authorId: viewer.id, kind: PostKind.POST, body: dto.body ? dto.body : null, repostOfId: original.id },
+        select: { id: true },
+      });
+      repostId = created.id;
+    } catch (e) {
+      throw isFkViolation(e) ? notFound() : e;
+    }
+    return this.findOne(repostId, viewer);
+  }
+
+  /** DELETE /posts/:id/repost: removes my repost of that original (:id may be the original or a repost of it). */
+  async unrepost(id: number, viewer: AuthUser): Promise<void> {
+    const target = await this.findVisibleTarget(id, viewer);
+    const originalId = target.repostOfId ?? target.id;
+    const { count } = await this.prisma.post.deleteMany({ where: { authorId: viewer.id, repostOfId: originalId } });
+    if (count === 0) throw new AppError('NOT_FOUND', 404, 'You have not reposted this post');
   }
 }
