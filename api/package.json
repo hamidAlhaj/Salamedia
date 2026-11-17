@@ -17,7 +17,8 @@
     "test:watch": "jest --watch",
     "test:cov": "jest --coverage",
     "test:debug": "node --inspect-brk -r tsconfig-paths/register -r ts-node/register node_modules/.bin/jest --runInBand",
-    "db:seed": "prisma db seed"
+    "db:seed": "prisma db seed",
+    "media:sweep": "ts-node src/media/sweep.ts"
   },
   "dependencies": {
     "@nestjs/common": "11.2.10",
