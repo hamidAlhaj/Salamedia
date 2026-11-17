@@ -49,6 +49,7 @@ const FIELD_MESSAGES: Record<string, string> = {
   email: "أدخل بريداً إلكترونياً صحيحاً.",
   password: "كلمة المرور يجب أن تكون ٨ أحرف على الأقل.",
   identifier: "أدخل البريد الإلكتروني أو اسم المستخدم.",
+  body: "النص طويل جداً. الحد ٢٠٠٠ حرف.",
 };
 
 export function fieldErrors(details: unknown): Record<string, string> {
