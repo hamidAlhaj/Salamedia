@@ -163,7 +163,7 @@ export function LoadMoreComments({ postId, initialCursor }: { postId: number; in
         </p>
       )}
       {cursor ? (
-        <Button variant="ghost" size="sm" pending={pending} onClick={loadMore} className="self-start text-muted">
+        <Button variant="ghost" size="sm" pending={pending} onClick={loadMore} className="self-start !text-muted">
           عرض تعليقات أقدم
         </Button>
       ) : (

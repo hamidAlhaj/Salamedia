@@ -237,7 +237,7 @@ export function PostActions({ data }: { data: PostActionsData }) {
             variant="ghost"
             size="sm"
             aria-pressed={optimistic.liked}
-            className={optimistic.liked ? "text-accent" : "text-muted"}
+            className={optimistic.liked ? "!text-accent" : "!text-muted"}
           >
             <span
               key={optimistic.liked ? "on" : "off"}
@@ -268,7 +268,7 @@ export function PostActions({ data }: { data: PostActionsData }) {
               variant: "ghost",
               size: "sm",
               fullWidth: true,
-              className: reposts.reposted ? "text-primary" : "text-muted",
+              className: reposts.reposted ? "!text-primary" : "!text-muted",
             })}
           >
             {reposts.reposted ? <RepostIcon size={18} /> : <ShareIcon size={18} />}
